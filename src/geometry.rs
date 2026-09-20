@@ -283,7 +283,9 @@ pub fn grade_rgb8(rgb: &[u8], saturation: f32, gamma: f32) -> Vec<u8> {
     if saturation == 1.0 && gamma == 1.0 {
         return rgb.to_vec();
     }
-    rgb.chunks_exact(3)
+    rgb.as_chunks::<3>()
+        .0
+        .iter()
         .flat_map(|p| {
             to_u8(grade_one(
                 p[0] as f32,

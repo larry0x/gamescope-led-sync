@@ -68,8 +68,8 @@ extern "C" fn on_signal(_sig: libc::c_int) {
 /// which gamescope hosts, down with it.
 pub fn install_signal_handler() {
     unsafe {
-        libc::signal(libc::SIGINT, on_signal as libc::sighandler_t);
-        libc::signal(libc::SIGTERM, on_signal as libc::sighandler_t);
+        libc::signal(libc::SIGINT, on_signal as *const () as libc::sighandler_t);
+        libc::signal(libc::SIGTERM, on_signal as *const () as libc::sighandler_t);
     }
 }
 
