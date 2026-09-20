@@ -313,3 +313,333 @@ pub fn sampled_rgb(f: &Frame) -> (Vec<u8>, usize, usize) {
     }
     (out, sw, sh)
 }
+
+#[cfg(test)]
+mod tests {
+    // The expected behavior below is fixed from the project's goal --
+    // an ambient backlight where each LED shows the color of the screen
+    // region physically nearest it -- and from the color-grading
+    // definitions, never from this implementation. A failing assertion
+    // means the code is wrong, not that the assertion should change.
+    use super::*;
+
+    // Build a BGRx frame (the capture's pixel format) whose screen
+    // color at (x, y) is given by `rgb`, so tests state colors in RGB
+    // and this encodes them the way the capture delivers them.
+    fn frame(w: usize, h: usize, rgb: impl Fn(usize, usize) -> [u8; 3]) -> Vec<u8> {
+        let mut data = vec![0u8; w * h * 4];
+        for y in 0..h {
+            for x in 0..w {
+                let [r, g, b] = rgb(x, y);
+                let i = (y * w + x) * 4;
+                data[i] = b;
+                data[i + 1] = g;
+                data[i + 2] = r;
+            }
+        }
+        data
+    }
+
+    // ---- Corner ---------------------------------------------------------
+
+    #[test]
+    fn corner_parses_the_four_codes() {
+        assert_eq!(Corner::parse("bl"), Some(Corner::Bl));
+        assert_eq!(Corner::parse("tl"), Some(Corner::Tl));
+        assert_eq!(Corner::parse("tr"), Some(Corner::Tr));
+        assert_eq!(Corner::parse("br"), Some(Corner::Br));
+    }
+
+    #[test]
+    fn corner_rejects_anything_else() {
+        for s in ["", "BL", "Bl", "b", "bottom-left", "bl ", "x"] {
+            assert_eq!(Corner::parse(s), None, "{s:?} should not parse");
+        }
+    }
+
+    // ---- Layout ---------------------------------------------------------
+
+    #[test]
+    fn layout_keeps_its_edges_and_sums_the_count() {
+        let l = Layout::new(132, 75, 132, 75, Corner::Bl, true).unwrap();
+        assert_eq!(
+            (l.top(), l.right(), l.bottom(), l.left()),
+            (132, 75, 132, 75)
+        );
+        assert_eq!(l.count(), 414);
+        assert_eq!(l.start(), Corner::Bl);
+        assert!(l.clockwise());
+    }
+
+    #[test]
+    fn layout_accepts_up_to_one_packet_and_rejects_beyond() {
+        // 490 LEDs is the most a single DRGB packet carries.
+        assert!(Layout::new(490, 0, 0, 0, Corner::Bl, true).is_ok());
+        assert!(Layout::new(123, 122, 123, 122, Corner::Bl, true).is_ok()); // 490
+        assert!(Layout::new(491, 0, 0, 0, Corner::Bl, true).is_err());
+        assert!(Layout::new(123, 123, 123, 122, Corner::Bl, true).is_err()); // 491
+    }
+
+    #[test]
+    fn layout_rejects_no_leds_but_allows_a_missing_edge() {
+        assert!(Layout::new(0, 0, 0, 0, Corner::Bl, true).is_err());
+        // A three-sided strip (no bottom) is a legitimate setup.
+        assert!(Layout::new(10, 5, 0, 5, Corner::Bl, true).is_ok());
+    }
+
+    // ---- edge_means -----------------------------------------------------
+
+    #[test]
+    fn edge_means_of_a_solid_frame_is_that_color_everywhere() {
+        // Every zone of every edge must report the one screen color,
+        // which also proves the BGRx bytes are read back as RGB.
+        let data = frame(40, 40, |_, _| [10, 20, 30]);
+        let f = Frame {
+            data: &data,
+            width: 40,
+            height: 40,
+            stride: 160,
+            step: 1,
+        };
+        let l = Layout::new(4, 3, 4, 3, Corner::Bl, true).unwrap();
+        let e = edge_means(&f, 0.1, &l);
+        for zones in [&e.top, &e.right, &e.bottom, &e.left] {
+            for c in zones {
+                assert_eq!(c.map(|v| v as u8), [10, 20, 30]);
+            }
+        }
+    }
+
+    #[test]
+    fn edge_means_orders_top_and_bottom_left_to_right() {
+        // Left half red, right half blue. The horizontal edges run
+        // left-to-right, so zone 0 is red and zone 1 is blue; the left
+        // edge sees only red, the right edge only blue.
+        let (red, blue) = ([200u8, 0, 0], [0u8, 0, 200]);
+        let data = frame(40, 40, |x, _| {
+            if x < 20 {
+                red
+            } else {
+                blue
+            }
+        });
+        let f = Frame {
+            data: &data,
+            width: 40,
+            height: 40,
+            stride: 160,
+            step: 1,
+        };
+        let l = Layout::new(2, 2, 2, 2, Corner::Bl, true).unwrap();
+        let e = edge_means(&f, 0.1, &l);
+        assert_eq!(e.top[0].map(|v| v as u8), red);
+        assert_eq!(e.top[1].map(|v| v as u8), blue);
+        assert_eq!(e.bottom[0].map(|v| v as u8), red);
+        assert_eq!(e.bottom[1].map(|v| v as u8), blue);
+        assert_eq!(e.left[0].map(|v| v as u8), red);
+        assert_eq!(e.left[1].map(|v| v as u8), red);
+        assert_eq!(e.right[0].map(|v| v as u8), blue);
+        assert_eq!(e.right[1].map(|v| v as u8), blue);
+    }
+
+    #[test]
+    fn edge_means_orders_left_and_right_top_to_bottom() {
+        // Top half green, bottom half red. The vertical edges run
+        // top-to-bottom, so zone 0 is green and zone 1 is red.
+        let (green, red) = ([0u8, 200, 0], [200u8, 0, 0]);
+        let data = frame(40, 40, |_, y| {
+            if y < 20 {
+                green
+            } else {
+                red
+            }
+        });
+        let f = Frame {
+            data: &data,
+            width: 40,
+            height: 40,
+            stride: 160,
+            step: 1,
+        };
+        let l = Layout::new(2, 2, 2, 2, Corner::Bl, true).unwrap();
+        let e = edge_means(&f, 0.1, &l);
+        assert_eq!(e.left[0].map(|v| v as u8), green);
+        assert_eq!(e.left[1].map(|v| v as u8), red);
+        assert_eq!(e.right[0].map(|v| v as u8), green);
+        assert_eq!(e.right[1].map(|v| v as u8), red);
+        assert_eq!(e.top[0].map(|v| v as u8), green);
+        assert_eq!(e.top[1].map(|v| v as u8), green);
+        assert_eq!(e.bottom[0].map(|v| v as u8), red);
+        assert_eq!(e.bottom[1].map(|v| v as u8), red);
+    }
+
+    // ---- chain ----------------------------------------------------------
+
+    // Two zones per edge, each tagged [edge_id, position, 0] so the
+    // chained order can be read back. Edge ids: top 10, right 20,
+    // bottom 30, left 40; position is the canonical index (top/bottom
+    // left-to-right, left/right top-to-bottom).
+    fn tagged_edges() -> EdgeColors {
+        let e = |id: f32| vec![[id, 0.0, 0.0], [id, 1.0, 0.0]];
+        EdgeColors {
+            top: e(10.0),
+            right: e(20.0),
+            bottom: e(30.0),
+            left: e(40.0),
+        }
+    }
+
+    fn tags(chained: &[[f32; 3]]) -> Vec<(u8, u8)> {
+        chained.iter().map(|c| (c[0] as u8, c[1] as u8)).collect()
+    }
+
+    #[test]
+    fn chain_clockwise_from_bottom_left() {
+        // Clockwise from bottom-left, seen from the front: up the left
+        // edge, across the top, down the right, back across the bottom.
+        let l = Layout::new(2, 2, 2, 2, Corner::Bl, true).unwrap();
+        let got = tags(&chain(&tagged_edges(), &l));
+        assert_eq!(
+            got,
+            vec![
+                (40, 1),
+                (40, 0), // left edge, bottom to top
+                (10, 0),
+                (10, 1), // top edge, left to right
+                (20, 0),
+                (20, 1), // right edge, top to bottom
+                (30, 1),
+                (30, 0), // bottom edge, right to left
+            ],
+        );
+    }
+
+    #[test]
+    fn chain_counterclockwise_from_bottom_left() {
+        // Counterclockwise from bottom-left: along the bottom, up the
+        // right, across the top, down the left.
+        let l = Layout::new(2, 2, 2, 2, Corner::Bl, false).unwrap();
+        let got = tags(&chain(&tagged_edges(), &l));
+        assert_eq!(
+            got,
+            vec![
+                (30, 0),
+                (30, 1), // bottom edge, left to right
+                (20, 1),
+                (20, 0), // right edge, bottom to top
+                (10, 1),
+                (10, 0), // top edge, right to left
+                (40, 0),
+                (40, 1), // left edge, top to bottom
+            ],
+        );
+    }
+
+    #[test]
+    fn chain_clockwise_from_top_left() {
+        // Clockwise from top-left: across the top, down the right,
+        // across the bottom, up the left.
+        let l = Layout::new(2, 2, 2, 2, Corner::Tl, true).unwrap();
+        let got = tags(&chain(&tagged_edges(), &l));
+        assert_eq!(
+            got,
+            vec![
+                (10, 0),
+                (10, 1), // top edge, left to right
+                (20, 0),
+                (20, 1), // right edge, top to bottom
+                (30, 1),
+                (30, 0), // bottom edge, right to left
+                (40, 1),
+                (40, 0), // left edge, bottom to top
+            ],
+        );
+    }
+
+    #[test]
+    fn chain_length_matches_the_led_count() {
+        let l = Layout::new(4, 3, 4, 3, Corner::Br, true).unwrap();
+        let e = EdgeColors {
+            top: vec![[0.0; 3]; 4],
+            right: vec![[0.0; 3]; 3],
+            bottom: vec![[0.0; 3]; 4],
+            left: vec![[0.0; 3]; 3],
+        };
+        assert_eq!(chain(&e, &l).len(), l.count());
+    }
+
+    // ---- color grading --------------------------------------------------
+
+    #[test]
+    fn grading_is_identity_at_the_defaults() {
+        assert_eq!(
+            shape_colors(&[[10.0, 20.0, 30.0]], 1.0, 1.0),
+            vec![[10, 20, 30]]
+        );
+        assert_eq!(grade_color([200.0, 100.0, 50.0], 1.0, 1.0), [200, 100, 50]);
+    }
+
+    #[test]
+    fn saturation_leaves_a_gray_unchanged() {
+        // A gray has every channel equal to its own luma, so no
+        // saturation gain can move it, whatever the luma weights are.
+        assert_eq!(
+            grade_color([100.0, 100.0, 100.0], 0.0, 1.0),
+            [100, 100, 100]
+        );
+        assert_eq!(
+            grade_color([100.0, 100.0, 100.0], 5.0, 1.0),
+            [100, 100, 100]
+        );
+    }
+
+    #[test]
+    fn zero_saturation_makes_gray() {
+        // Fully desaturated, every channel collapses to the shared luma.
+        let [r, g, b] = grade_color([200.0, 100.0, 50.0], 0.0, 1.0);
+        assert_eq!((r, g), (g, b));
+    }
+
+    #[test]
+    fn saturation_above_one_widens_the_spread() {
+        // A channel above the luma rises, one below it falls.
+        let [r, _g, b] = grade_color([200.0, 100.0, 60.0], 1.5, 1.0);
+        assert!(r > 200, "channel above luma should rise, got {r}");
+        assert!(b < 60, "channel below luma should fall, got {b}");
+    }
+
+    #[test]
+    fn gamma_below_one_brightens_and_above_one_darkens() {
+        // out = 255 * (v/255)^gamma. For v = 100: gamma 0.5 -> 160,
+        // gamma 2.0 -> 39. Computed from the definition, not the code.
+        assert_eq!(
+            grade_color([100.0, 100.0, 100.0], 1.0, 0.5),
+            [160, 160, 160]
+        );
+        assert_eq!(grade_color([100.0, 100.0, 100.0], 1.0, 2.0), [39, 39, 39]);
+    }
+
+    #[test]
+    fn grading_clamps_out_of_range_channels() {
+        // Saturation drives red past 255 and the others below 0; the
+        // result must clamp, never wrap.
+        assert_eq!(grade_color([250.0, 0.0, 0.0], 2.0, 1.0), [255, 0, 0]);
+    }
+
+    #[test]
+    fn grade_rgb8_passes_through_at_the_defaults() {
+        assert_eq!(
+            grade_rgb8(&[1, 2, 3, 4, 5, 6], 1.0, 1.0),
+            vec![1, 2, 3, 4, 5, 6]
+        );
+    }
+
+    #[test]
+    fn grade_rgb8_grades_every_pixel() {
+        // Two gray pixels under gamma 0.5: 100 -> 160, 50 -> 113.
+        assert_eq!(
+            grade_rgb8(&[100, 100, 100, 50, 50, 50], 1.0, 0.5),
+            vec![160, 160, 160, 113, 113, 113],
+        );
+    }
+}
