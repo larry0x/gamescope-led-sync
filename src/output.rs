@@ -26,6 +26,24 @@ fn drgb_packet(timeout_s: u8, colors: &[[u8; 3]]) -> Vec<u8> {
     packet
 }
 
+/// Why a WledSender could not be created.
+#[derive(Debug, thiserror::Error)]
+pub enum WledError {
+    #[error("cannot resolve WLED host {host}: {source}")]
+    Resolve {
+        host: String,
+        #[source]
+        source: io::Error,
+    },
+    #[error("no address for WLED host {host}")]
+    NoAddress { host: String },
+    #[error("binding the UDP socket: {source}")]
+    Bind {
+        #[source]
+        source: io::Error,
+    },
+}
+
 pub struct WledSender {
     sock: UdpSocket,
     addr: SocketAddr,
@@ -34,13 +52,18 @@ pub struct WledSender {
 }
 
 impl WledSender {
-    pub fn new(host: &str, port: u16, timeout_s: u8) -> Result<WledSender, String> {
+    pub fn new(host: &str, port: u16, timeout_s: u8) -> Result<WledSender, WledError> {
         let addr = (host, port)
             .to_socket_addrs()
-            .map_err(|e| format!("cannot resolve {host}: {e}"))?
+            .map_err(|source| WledError::Resolve {
+                host: host.to_string(),
+                source,
+            })?
             .next()
-            .ok_or_else(|| format!("no address for {host}"))?;
-        let sock = UdpSocket::bind("0.0.0.0:0").map_err(|e| format!("udp socket: {e}"))?;
+            .ok_or_else(|| WledError::NoAddress {
+                host: host.to_string(),
+            })?;
+        let sock = UdpSocket::bind("0.0.0.0:0").map_err(|source| WledError::Bind { source })?;
         Ok(WledSender {
             sock,
             addr,

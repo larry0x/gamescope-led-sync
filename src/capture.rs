@@ -5,7 +5,7 @@ use {
     crate::{
         cli::Config,
         geometry::{Frame, chain, edge_means, grade_color, grade_rgb8, sampled_rgb, shape_colors},
-        output::{Preview, WledSender, write_png},
+        output::{Preview, WledError, WledSender, write_png},
     },
     pipewire::{
         self as pw,
@@ -81,6 +81,27 @@ pub enum Reason {
     OnceFailed(String),
     Stopped(String),
     Interrupted,
+}
+
+/// A setup failure that ends a capture session before it produces frames.
+#[derive(Debug, thiserror::Error)]
+pub enum CaptureError {
+    #[error("pipewire {op}: {source}")]
+    Pipewire {
+        op: &'static str,
+        #[source]
+        source: pw::Error,
+    },
+    #[error("{op} timer: {source}")]
+    Timer {
+        op: &'static str,
+        #[source]
+        source: pw::spa::utils::result::Error,
+    },
+    #[error("building the format pod failed")]
+    BuildPod,
+    #[error(transparent)]
+    Wled(#[from] WledError),
 }
 
 /// The client's format offer.
@@ -163,10 +184,13 @@ fn discover(
     mainloop: &MainLoopRc,
     core: &pw::core::CoreRc,
     once: bool,
-) -> Result<Option<u32>, String> {
+) -> Result<Option<u32>, CaptureError> {
     let registry = Rc::new(
         core.get_registry_rc()
-            .map_err(|e| format!("registry: {e}"))?,
+            .map_err(|source| CaptureError::Pipewire {
+                op: "registry",
+                source,
+            })?,
     );
     let found: Rc<Cell<Option<u32>>> = Rc::new(Cell::new(None));
     // Bound candidates with their info listeners, alive until
@@ -248,7 +272,10 @@ fn discover(
             Some(Duration::from_millis(500)),
         )
         .into_result()
-        .map_err(|e| format!("discovery timer: {e:?}"))?;
+        .map_err(|source| CaptureError::Timer {
+            op: "discovery",
+            source,
+        })?;
 
     mainloop.run();
     Ok(found.get())
@@ -269,12 +296,21 @@ struct State {
     end: Option<Reason>,
 }
 
-pub fn run(cfg: &Config) -> Result<Reason, String> {
-    let mainloop = MainLoopRc::new(None).map_err(|e| format!("pipewire main loop: {e}"))?;
-    let context = ContextRc::new(&mainloop, None).map_err(|e| format!("pipewire context: {e}"))?;
+pub fn run(cfg: &Config) -> Result<Reason, CaptureError> {
+    let mainloop = MainLoopRc::new(None).map_err(|source| CaptureError::Pipewire {
+        op: "main loop",
+        source,
+    })?;
+    let context = ContextRc::new(&mainloop, None).map_err(|source| CaptureError::Pipewire {
+        op: "context",
+        source,
+    })?;
     let core = context
         .connect_rc(None)
-        .map_err(|e| format!("pipewire connect: {e}"))?;
+        .map_err(|source| CaptureError::Pipewire {
+            op: "connect",
+            source,
+        })?;
 
     let Some(node_id) = discover(&mainloop, &core, cfg.once)? else {
         if interrupted() {
@@ -296,7 +332,10 @@ pub fn run(cfg: &Config) -> Result<Reason, String> {
                 *pw::keys::MEDIA_ROLE => "Screen",
             },
         )
-        .map_err(|e| format!("stream: {e}"))?,
+        .map_err(|source| CaptureError::Pipewire {
+            op: "stream",
+            source,
+        })?,
     );
 
     let now = Instant::now();
@@ -377,10 +416,10 @@ pub fn run(cfg: &Config) -> Result<Reason, String> {
         // only has to exist so the loop wakes on new frames.
         .process(|_stream, _ud| {})
         .register()
-        .map_err(|e| format!("stream listener: {e}"))?;
+        .map_err(|source| CaptureError::Pipewire { op: "stream listener", source })?;
 
     let pod_bytes = format_pod(cfg);
-    let pod = Pod::from_bytes(&pod_bytes).ok_or("building the format pod failed")?;
+    let pod = Pod::from_bytes(&pod_bytes).ok_or(CaptureError::BuildPod)?;
     stream
         .connect(
             Direction::Input,
@@ -388,7 +427,10 @@ pub fn run(cfg: &Config) -> Result<Reason, String> {
             StreamFlags::AUTOCONNECT | StreamFlags::MAP_BUFFERS,
             &mut [pod],
         )
-        .map_err(|e| format!("stream connect: {e}"))?;
+        .map_err(|source| CaptureError::Pipewire {
+            op: "stream connect",
+            source,
+        })?;
 
     let tick = Duration::from_secs_f64(1.0 / cfg.fps);
     let timer = mainloop.loop_().add_timer({
@@ -550,7 +592,10 @@ pub fn run(cfg: &Config) -> Result<Reason, String> {
     timer
         .update_timer(Some(tick), Some(tick))
         .into_result()
-        .map_err(|e| format!("session timer: {e:?}"))?;
+        .map_err(|source| CaptureError::Timer {
+            op: "session",
+            source,
+        })?;
 
     mainloop.run();
 

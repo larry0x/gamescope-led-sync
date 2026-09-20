@@ -33,6 +33,15 @@ impl Corner {
     }
 }
 
+/// Why a Layout was rejected.
+#[derive(Debug, thiserror::Error)]
+pub enum LayoutError {
+    #[error("layout has zero LEDs")]
+    ZeroLeds,
+    #[error("{count} LEDs exceed one DRGB packet (490)")]
+    TooManyLeds { count: usize },
+}
+
 /// LED counts per edge plus the strip's physical orientation. A Layout
 /// only exists if its total fits one DRGB packet (490 LEDs).
 #[derive(Clone, Debug)]
@@ -53,13 +62,13 @@ impl Layout {
         left: usize,
         start: Corner,
         clockwise: bool,
-    ) -> Result<Layout, String> {
+    ) -> Result<Layout, LayoutError> {
         let count = top + right + bottom + left;
         if count == 0 {
-            return Err("layout has zero LEDs".into());
+            return Err(LayoutError::ZeroLeds);
         }
         if count > 490 {
-            return Err(format!("{count} LEDs exceed one DRGB packet (490)"));
+            return Err(LayoutError::TooManyLeds { count });
         }
         Ok(Layout {
             top,

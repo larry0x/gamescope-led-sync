@@ -102,7 +102,7 @@ struct Cli {
 
 /// Emit a clap-styled error and exit, for validation clap cannot express
 /// in an attribute.
-fn bail(message: String) -> ! {
+fn bail(message: impl std::fmt::Display) -> ! {
     Cli::command()
         .error(ErrorKind::ValueValidation, message)
         .exit()
@@ -112,10 +112,10 @@ pub fn parse() -> Config {
     let cli = Cli::parse();
 
     if cli.fps <= 0.0 {
-        bail("--fps must be positive".into());
+        bail("--fps must be positive");
     }
     if cli.sample_height == 0 {
-        bail("--sample-height must be positive".into());
+        bail("--sample-height must be positive");
     }
 
     // clap has already restricted --start to the four valid values.
