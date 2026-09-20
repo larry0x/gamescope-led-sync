@@ -14,8 +14,6 @@ The design must meet three rules:
 2. **No account, cloud, or telemetry.** Everything runs on the local network.
 3. **Fits a 100-inch TV.** The perimeter is about 7 meters.
 
-Higher LED latency is fine. This setup is for single-player games, not competitive play.
-
 No commercial product meets these rules. They fall short in three ways:
 
 - **They degrade the video.** 4K at 144 Hz with 10-bit color needs a 48 Gbit/s HDMI link, or link compression. No sync box or splitter offers either; they cap at 40 Gbit/s. So they drop the refresh rate to 120 Hz, or the color to 8-bit, and they often lose variable refresh rate.
