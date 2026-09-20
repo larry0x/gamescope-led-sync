@@ -63,7 +63,14 @@ impl WledSender {
             .ok_or_else(|| WledError::NoAddress {
                 host: host.to_string(),
             })?;
-        let sock = UdpSocket::bind("0.0.0.0:0").map_err(|source| WledError::Bind { source })?;
+        // Bind the socket in the resolved address's family; sending
+        // from a 0.0.0.0 socket to an IPv6 peer would fail silently.
+        let bind = if addr.is_ipv6() {
+            "[::]:0"
+        } else {
+            "0.0.0.0:0"
+        };
+        let sock = UdpSocket::bind(bind).map_err(|source| WledError::Bind { source })?;
         Ok(WledSender {
             sock,
             addr,

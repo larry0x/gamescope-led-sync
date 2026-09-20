@@ -111,11 +111,20 @@ fn bail(message: impl std::fmt::Display) -> ! {
 pub fn parse() -> Config {
     let cli = Cli::parse();
 
-    if cli.fps <= 0.0 {
-        bail("--fps must be positive");
+    if !cli.fps.is_finite() || cli.fps <= 0.0 {
+        bail("--fps must be a positive, finite number");
     }
-    if cli.sample_height == 0 {
-        bail("--sample-height must be positive");
+    if cli.sample_height == 0 || cli.sample_height > 16384 {
+        bail("--sample-height must be between 1 and 16384");
+    }
+    if !cli.smooth.is_finite() || cli.smooth <= 0.0 {
+        bail("--smooth must be a positive number (1 disables smoothing)");
+    }
+    if !cli.gamma.is_finite() || cli.gamma <= 0.0 {
+        bail("--gamma must be a positive number");
+    }
+    if !cli.saturation.is_finite() || cli.saturation < 0.0 {
+        bail("--saturation must be zero or a positive number");
     }
 
     // clap has already restricted --start to the four valid values.

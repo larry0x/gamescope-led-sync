@@ -15,7 +15,7 @@ mod cli;
 mod geometry;
 mod output;
 
-use std::{process::ExitCode, thread::sleep, time::Duration};
+use std::{cell::RefCell, process::ExitCode, rc::Rc, thread::sleep, time::Duration};
 
 const RECONNECT_DELAY: Duration = Duration::from_secs(2);
 
@@ -43,12 +43,26 @@ fn main() -> ExitCode {
             "counterclockwise"
         },
     );
-    if cfg.wled.is_none() {
-        tracing::info!("no --wled given: dry run, nothing is sent");
-    }
+    // The WLED sender and the last colors sent live here, across
+    // sessions, so a reconnect keeps the LEDs lit instead of dropping
+    // them for the reconnect gap (see wait_and_keepalive).
+    let sender = match &cfg.wled {
+        Some(host) => match output::WledSender::new(host, cfg.port, cfg.timeout_s) {
+            Ok(s) => Some(Rc::new(RefCell::new(s))),
+            Err(e) => {
+                tracing::error!("{e}");
+                return ExitCode::FAILURE;
+            },
+        },
+        None => {
+            tracing::info!("no --wled given: dry run, nothing is sent");
+            None
+        },
+    };
+    let last_colors: Rc<RefCell<Option<Vec<[u8; 3]>>>> = Rc::new(RefCell::new(None));
 
     loop {
-        match capture::run(&cfg) {
+        match capture::run(&cfg, sender.as_ref(), &last_colors) {
             Ok(capture::Reason::OnceDone) => return ExitCode::SUCCESS,
             Ok(capture::Reason::Interrupted) => {
                 tracing::info!("interrupted; disconnected cleanly");
@@ -78,6 +92,32 @@ fn main() -> ExitCode {
         if capture::interrupted() {
             return ExitCode::SUCCESS;
         }
-        sleep(RECONNECT_DELAY);
+        wait_and_keepalive(sender.as_ref(), &last_colors);
+        if capture::interrupted() {
+            return ExitCode::SUCCESS;
+        }
+    }
+}
+
+/// Wait before reconnecting, resending the last colors about once a
+/// second so WLED stays in realtime mode and does not fall back to its
+/// preset during the gap.
+fn wait_and_keepalive(
+    sender: Option<&Rc<RefCell<output::WledSender>>>,
+    last_colors: &Rc<RefCell<Option<Vec<[u8; 3]>>>>,
+) {
+    let step = Duration::from_secs(1);
+    let mut waited = Duration::ZERO;
+    while waited < RECONNECT_DELAY {
+        if capture::interrupted() {
+            return;
+        }
+        if let Some(sender) = sender
+            && let Some(colors) = last_colors.borrow().as_ref()
+        {
+            sender.borrow_mut().send(colors);
+        }
+        sleep(step);
+        waited += step;
     }
 }

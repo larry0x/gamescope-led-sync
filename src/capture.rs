@@ -5,7 +5,7 @@ use {
     crate::{
         cli::Config,
         geometry::{Frame, chain, edge_means, grade_color, grade_rgb8, sampled_rgb, shape_colors},
-        output::{Preview, WledError, WledSender, write_png},
+        output::{Preview, WledSender, write_png},
     },
     pipewire::{
         self as pw,
@@ -100,8 +100,6 @@ pub enum CaptureError {
     },
     #[error("building the format pod failed")]
     BuildPod,
-    #[error(transparent)]
-    Wled(#[from] WledError),
 }
 
 /// The client's format offer.
@@ -114,7 +112,7 @@ pub enum CaptureError {
 /// makes it renegotiate to a small capture.
 fn format_pod(cfg: &Config) -> Vec<u8> {
     let h = cfg.sample_height;
-    let w = h * 16 / 9; // rough aspect; gamescope aspect-fits and rounds
+    let w = h.saturating_mul(16) / 9; // rough aspect; gamescope aspect-fits and rounds
     let obj = Object {
         type_: SPA_TYPE_OBJECT_FORMAT,
         id: ParamType::EnumFormat.as_raw(),
@@ -288,7 +286,6 @@ struct State {
     frame: Vec<u8>,
     fresh: bool,
     smoothed: Option<Vec<[f32; 3]>>,
-    last_colors: Option<Vec<[u8; 3]>>,
     last_send: Instant,
     stats_at: Instant,
     frames: u64,
@@ -296,7 +293,11 @@ struct State {
     end: Option<Reason>,
 }
 
-pub fn run(cfg: &Config) -> Result<Reason, CaptureError> {
+pub fn run(
+    cfg: &Config,
+    sender: Option<&Rc<RefCell<WledSender>>>,
+    last_colors: &Rc<RefCell<Option<Vec<[u8; 3]>>>>,
+) -> Result<Reason, CaptureError> {
     let mainloop = MainLoopRc::new(None).map_err(|source| CaptureError::Pipewire {
         op: "main loop",
         source,
@@ -346,7 +347,6 @@ pub fn run(cfg: &Config) -> Result<Reason, CaptureError> {
         frame: Vec::new(),
         fresh: false,
         smoothed: None,
-        last_colors: None,
         last_send: now,
         stats_at: now,
         frames: 0,
@@ -354,14 +354,6 @@ pub fn run(cfg: &Config) -> Result<Reason, CaptureError> {
         end: None,
     }));
 
-    let sender = match &cfg.wled {
-        Some(host) => Some(Rc::new(RefCell::new(WledSender::new(
-            host,
-            cfg.port,
-            cfg.timeout_s,
-        )?))),
-        None => None,
-    };
     let preview = cfg.preview.then(|| Rc::new(RefCell::new(Preview::new())));
 
     let _listener = stream
@@ -436,7 +428,8 @@ pub fn run(cfg: &Config) -> Result<Reason, CaptureError> {
     let timer = mainloop.loop_().add_timer({
         let stream = stream.clone();
         let state = state.clone();
-        let sender = sender.clone();
+        let sender = sender.cloned();
+        let last_colors = last_colors.clone();
         let preview = preview.clone();
         let ml = mainloop.clone();
         let cfg = cfg.clone();
@@ -460,11 +453,15 @@ pub fn run(cfg: &Config) -> Result<Reason, CaptureError> {
                     continue;
                 };
                 let size = d.chunk().size() as usize;
+                let offset = d.chunk().offset() as usize;
                 let stride = d.chunk().stride();
                 if let Some(bytes) = d.data() {
-                    let n = size.min(bytes.len());
+                    // Valid data is [offset, offset + size), per the SPA
+                    // chunk contract; clamp to the mapped region.
+                    let start = offset.min(bytes.len());
+                    let end = offset.saturating_add(size).min(bytes.len());
                     st.frame.clear();
-                    st.frame.extend_from_slice(&bytes[..n]);
+                    st.frame.extend_from_slice(&bytes[start..end.max(start)]);
                     st.stride = if stride > 0 {
                         stride as usize
                     } else {
@@ -519,7 +516,7 @@ pub fn run(cfg: &Config) -> Result<Reason, CaptureError> {
                     sender.borrow_mut().send(&colors);
                     st.last_send = now;
                 }
-                st.last_colors = Some(colors);
+                *last_colors.borrow_mut() = Some(colors);
                 st.frames += 1;
 
                 if let Some(preview) = &preview {
@@ -545,8 +542,13 @@ pub fn run(cfg: &Config) -> Result<Reason, CaptureError> {
                         ("bottom", &edges.bottom),
                         ("left", &edges.left),
                     ] {
-                        let f = grade_color(zones[0], cfg.saturation, cfg.gamma);
-                        let l = grade_color(zones[zones.len() - 1], cfg.saturation, cfg.gamma);
+                        // An edge may have zero LEDs (a three-sided
+                        // strip), so it has no zones to report.
+                        let (Some(first), Some(last)) = (zones.first(), zones.last()) else {
+                            continue;
+                        };
+                        let f = grade_color(*first, cfg.saturation, cfg.gamma);
+                        let l = grade_color(*last, cfg.saturation, cfg.gamma);
                         tracing::info!(
                             "{}: first rgb({},{},{}) last rgb({},{},{}), {} zones",
                             name,
@@ -563,12 +565,14 @@ pub fn run(cfg: &Config) -> Result<Reason, CaptureError> {
                     ml.quit();
                     return;
                 }
-            } else if let (Some(sender), Some(colors)) = (&sender, &st.last_colors) {
+            } else if let Some(sender) = &sender {
                 // Quiet stream: a static screen is normal (gamescope is
                 // damage-driven). Keep WLED in realtime mode so it does
                 // not fall back to its preset mid-game. Actual node
                 // death arrives via state_changed instead.
-                if now.duration_since(st.last_send) >= KEEPALIVE {
+                if now.duration_since(st.last_send) >= KEEPALIVE
+                    && let Some(colors) = last_colors.borrow().as_ref()
+                {
                     sender.borrow_mut().send(colors);
                     st.last_send = now;
                 }
