@@ -13,7 +13,6 @@
 mod capture;
 mod cli;
 mod geometry;
-mod log;
 mod output;
 
 use std::{process::ExitCode, thread::sleep, time::Duration};
@@ -21,12 +20,16 @@ use std::{process::ExitCode, thread::sleep, time::Duration};
 const RECONNECT_DELAY: Duration = Duration::from_secs(2);
 
 fn main() -> ExitCode {
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .init();
+
     let cfg = cli::parse();
     pipewire::init();
     capture::install_signal_handler();
 
     let l = &cfg.layout;
-    log::info(format!(
+    tracing::info!(
         "layout: top {}, right {}, bottom {}, left {} = {} LEDs, start {}, {}",
         l.top(),
         l.right(),
@@ -39,35 +42,35 @@ fn main() -> ExitCode {
         } else {
             "counterclockwise"
         },
-    ));
+    );
     if cfg.wled.is_none() {
-        log::info("no --wled given: dry run, nothing is sent");
+        tracing::info!("no --wled given: dry run, nothing is sent");
     }
 
     loop {
         match capture::run(&cfg) {
             Ok(capture::Reason::OnceDone) => return ExitCode::SUCCESS,
             Ok(capture::Reason::Interrupted) => {
-                log::info("interrupted; disconnected cleanly");
+                tracing::info!("interrupted; disconnected cleanly");
                 return ExitCode::SUCCESS;
             },
             Ok(capture::Reason::OnceFailed(msg)) => {
-                log::warn(msg);
+                tracing::warn!("{msg}");
                 return ExitCode::FAILURE;
             },
             Ok(capture::Reason::Stopped(msg)) => {
                 if cfg.once {
-                    log::warn(msg);
+                    tracing::warn!("{msg}");
                     return ExitCode::FAILURE;
                 }
-                log::warn(format!("session ended ({msg}); reconnecting in 2 s"));
+                tracing::warn!("session ended ({msg}); reconnecting in 2 s");
             },
             Err(msg) => {
                 if cfg.once {
-                    log::warn(msg);
+                    tracing::warn!("{msg}");
                     return ExitCode::FAILURE;
                 }
-                log::warn(format!("{msg}; retrying in 2 s"));
+                tracing::warn!("{msg}; retrying in 2 s");
             },
         }
         // A signal during the session or the wait must end the process,

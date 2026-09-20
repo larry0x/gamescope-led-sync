@@ -5,7 +5,6 @@ use {
     crate::{
         cli::Config,
         geometry::{Frame, chain, edge_means, grade_color, grade_rgb8, sampled_rgb, shape_colors},
-        log,
         output::{Preview, WledSender, write_png},
     },
     pipewire::{
@@ -234,7 +233,7 @@ fn discover(
                 return;
             }
             if !announced.get() {
-                log::info("waiting for the gamescope node...");
+                tracing::info!("waiting for the gamescope node...");
                 announced.set(true);
             }
             if once && started.elapsed() >= DISCOVERY_ONCE_LIMIT {
@@ -285,7 +284,7 @@ pub fn run(cfg: &Config) -> Result<Reason, String> {
             "no gamescope node after 15 s; is gamescope running?".into(),
         ));
     };
-    log::info(format!("found gamescope node, id {node_id}"));
+    tracing::info!("found gamescope node, id {node_id}");
 
     let stream = Rc::new(
         StreamRc::new(
@@ -362,7 +361,7 @@ pub fn run(cfg: &Config) -> Result<Reason, String> {
                     st.width = w;
                     st.height = h;
                     let step = (h / sample_height.max(1)).max(1);
-                    log::info(format!(
+                    tracing::info!(
                         "capture {}x{} {:?}, subsampling step {} -> {}x{}",
                         w,
                         h,
@@ -370,7 +369,7 @@ pub fn run(cfg: &Config) -> Result<Reason, String> {
                         step,
                         w.div_ceil(step),
                         h.div_ceil(step),
-                    ));
+                    );
                 }
             }
         })
@@ -494,8 +493,8 @@ pub fn run(cfg: &Config) -> Result<Reason, String> {
                     if let (Some(path), Some((rgb, sw, sh))) = (&cfg.dump, &dump) {
                         let graded = grade_rgb8(rgb, cfg.saturation, cfg.gamma);
                         match write_png(path, *sw, *sh, &graded) {
-                            Ok(()) => log::info(format!("wrote {path} ({sw}x{sh})")),
-                            Err(e) => log::warn(format!("writing {path} failed: {e}")),
+                            Ok(()) => tracing::info!("wrote {path} ({sw}x{sh})"),
+                            Err(e) => tracing::warn!("writing {path} failed: {e}"),
                         }
                     }
                     for (name, zones) in [
@@ -506,7 +505,7 @@ pub fn run(cfg: &Config) -> Result<Reason, String> {
                     ] {
                         let f = grade_color(zones[0], cfg.saturation, cfg.gamma);
                         let l = grade_color(zones[zones.len() - 1], cfg.saturation, cfg.gamma);
-                        log::info(format!(
+                        tracing::info!(
                             "{}: first rgb({},{},{}) last rgb({},{},{}), {} zones",
                             name,
                             f[0],
@@ -516,7 +515,7 @@ pub fn run(cfg: &Config) -> Result<Reason, String> {
                             l[1],
                             l[2],
                             zones.len(),
-                        ));
+                        );
                     }
                     st.end = Some(Reason::OnceDone);
                     ml.quit();
@@ -536,12 +535,12 @@ pub fn run(cfg: &Config) -> Result<Reason, String> {
             if st.frames > 0 && now.duration_since(st.stats_at) >= STATS_EVERY {
                 let elapsed = now.duration_since(st.stats_at).as_secs_f64();
                 let sent = sender.as_ref().map_or(0, |s| s.borrow().sent);
-                log::info(format!(
+                tracing::info!(
                     "{:.1} frames/s, {:.1} ms processing, {} packets sent",
                     st.frames as f64 / elapsed,
                     st.proc.as_secs_f64() * 1000.0 / st.frames as f64,
                     sent,
-                ));
+                );
                 st.stats_at = now;
                 st.frames = 0;
                 st.proc = Duration::ZERO;
