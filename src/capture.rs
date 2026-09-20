@@ -10,8 +10,8 @@ use {
     },
     pipewire::{
         self as pw,
-        context::Context,
-        main_loop::MainLoop,
+        context::ContextRc,
+        main_loop::MainLoopRc,
         node::{Node, NodeListener},
         properties::properties,
         spa::{
@@ -23,7 +23,7 @@ use {
             pod::{ChoiceValue, Object, Pod, Property, Value, serialize::PodSerializer},
             utils::{Choice, ChoiceEnum, ChoiceFlags, Direction, Fraction, Id, Rectangle},
         },
-        stream::{Stream, StreamFlags, StreamState},
+        stream::{StreamFlags, StreamRc, StreamState},
         types::ObjectType,
     },
     std::{
@@ -160,8 +160,15 @@ fn format_pod(cfg: &Config) -> Vec<u8> {
 /// The registry's global event only carries a node's terse properties
 /// (node.name, media.class, ...); media.name is in the full node info.
 /// So every candidate video node is bound and its info inspected.
-fn discover(mainloop: &MainLoop, core: &pw::core::Core, once: bool) -> Result<Option<u32>, String> {
-    let registry = Rc::new(core.get_registry().map_err(|e| format!("registry: {e}"))?);
+fn discover(
+    mainloop: &MainLoopRc,
+    core: &pw::core::CoreRc,
+    once: bool,
+) -> Result<Option<u32>, String> {
+    let registry = Rc::new(
+        core.get_registry_rc()
+            .map_err(|e| format!("registry: {e}"))?,
+    );
     let found: Rc<Cell<Option<u32>>> = Rc::new(Cell::new(None));
     // Bound candidates with their info listeners, alive until
     // discovery ends.
@@ -264,10 +271,10 @@ struct State {
 }
 
 pub fn run(cfg: &Config) -> Result<Reason, String> {
-    let mainloop = MainLoop::new(None).map_err(|e| format!("pipewire main loop: {e}"))?;
-    let context = Context::new(&mainloop).map_err(|e| format!("pipewire context: {e}"))?;
+    let mainloop = MainLoopRc::new(None).map_err(|e| format!("pipewire main loop: {e}"))?;
+    let context = ContextRc::new(&mainloop, None).map_err(|e| format!("pipewire context: {e}"))?;
     let core = context
-        .connect(None)
+        .connect_rc(None)
         .map_err(|e| format!("pipewire connect: {e}"))?;
 
     let Some(node_id) = discover(&mainloop, &core, cfg.once)? else {
@@ -281,8 +288,8 @@ pub fn run(cfg: &Config) -> Result<Reason, String> {
     log::info(format!("found gamescope node, id {node_id}"));
 
     let stream = Rc::new(
-        Stream::new(
-            &core,
+        StreamRc::new(
+            core.clone(),
             "gamescope-led-sync",
             properties! {
                 *pw::keys::MEDIA_TYPE => "Video",

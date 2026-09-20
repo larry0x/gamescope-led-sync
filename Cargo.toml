@@ -6,7 +6,7 @@ version = "0.0.0"
 [dependencies]
 clap     = { default-features = false, features = ["derive", "error-context", "help", "std", "suggestions", "usage"], version = "4" }
 libc     = "0.2"
-pipewire = "0.8"
+pipewire = "0.10"
 
 [profile.release]
 codegen-units    = 1
