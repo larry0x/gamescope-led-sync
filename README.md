@@ -10,9 +10,9 @@ An ambient LED backlight behind a large TV, driven by a gaming PC. The LEDs show
 
 The design must meet three rules:
 
-1. **No video degradation.** The TV still receives 4K resolution, 144 Hz, HDR, variable refresh rate, and audio, exactly as the PC sends them.
-2. **No account, cloud, or telemetry.** Everything runs on the local network.
-3. **Fits a 100-inch TV.** The perimeter is about 7 meters.
+- **No video degradation.** The TV still receives 4K resolution, 144 Hz, HDR, variable refresh rate, and audio, exactly as the PC sends them.
+- **No account, cloud, or telemetry.** Everything runs on the local network.
+- **Fits a 100-inch TV.** The perimeter is about 7 meters.
 
 No commercial product meets these rules. They fall short in three ways:
 
@@ -46,4 +46,4 @@ Desirable property it achieves:
 
 ## License
 
-MIT. See [LICENSE](./LICENSE).
+[MIT](./LICENSE)
