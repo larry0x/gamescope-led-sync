@@ -46,4 +46,6 @@ Desirable property it achieves:
 
 ## License
 
-[MIT](./LICENSE)
+Copyright 2026 larry0x.
+
+Licensed under the [Apache License, Version 2.0](./LICENSE).
