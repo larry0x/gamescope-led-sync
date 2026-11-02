@@ -18,6 +18,7 @@
   nixfmt,
   statix,
   deadnix,
+  markdownlint-cli2,
   pkg-config,
   rustPlatform,
   pipewire,
@@ -43,6 +44,10 @@ mkShell {
     nixfmt
     statix
     deadnix
+
+    # Formatter and linter for the Markdown files, configured by
+    # .markdownlint-cli2.yaml.
+    markdownlint-cli2
   ]
   ++ lib.optionals stdenv.hostPlatform.isLinux [
     # Building the pipewire crate: pkg-config finds libpipewire, and the
