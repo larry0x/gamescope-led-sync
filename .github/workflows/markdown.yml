@@ -1,0 +1,48 @@
+name: Markdown
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "main"
+    paths:
+      - "**.md"
+      - ".markdownlint-cli2.yaml"
+      - "justfile"
+      - "flake.nix"
+      - "flake.lock"
+      - "shell.nix"
+      - ".github/workflows/markdown.yml"
+  pull_request:
+    branches:
+      - "*"
+    paths:
+      - "**.md"
+      - ".markdownlint-cli2.yaml"
+      - "justfile"
+      - "flake.nix"
+      - "flake.lock"
+      - "shell.nix"
+      - ".github/workflows/markdown.yml"
+
+# Each step runs the same just recipe a developer runs, so the two cannot
+# drift. GitHub-hosted runners ship no Nix, so each job installs it first.
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+
+      - name: Check for lint errors
+        run: nix develop --command just lint-markdown

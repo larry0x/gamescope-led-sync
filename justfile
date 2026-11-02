@@ -8,15 +8,36 @@ dev := "nix develop --command"
 # contain a space.
 nix := "$(git ls-files --cached --others --exclude-standard --deduplicate '*.nix' | while IFS= read -r f; do [ -f \"$f\" ] && echo \"$f\"; done)"
 
+# The global pre-commit hook on pc1 runs `just ci` before every commit, and
+# aborts the commit if it fails.
+
 # List available recipes
 default:
   @just --list
 
 # ------------------------------------ All -------------------------------------
 
-# Format every source: Rust, TOML, and Nix
+# The crate links libpipewire, which exists only on Linux, so on macOS the
+# Rust lint and tests fail in the build script of libspa-sys. A `ci` that
+# failed there would block every commit on the Mac used for editing, so the
+# macOS variant runs only the checks that work there: every format check, the
+# TOML lint, the Nix lints, and the Markdown lint. The Linux variant, and the
+# CI workflows on Ubuntu, run the full set.
+
+# Run every check: formatting, linters, and tests
 [group('all')]
-fmt: fmt-rust fmt-nix
+[linux]
+ci: fmt-check lint test
+
+# Run every check that works on macOS: formatting, TOML, Nix, and Markdown
+[group('all')]
+[macos]
+ci: fmt-check lint-nix lint-markdown
+  {{ dev }} taplo lint
+
+# Format every source: Rust, TOML, Nix, and Markdown
+[group('all')]
+fmt: fmt-rust fmt-nix fmt-markdown
 
 # Report formatting drift in every source, changing nothing
 [group('all')]
@@ -24,7 +45,7 @@ fmt-check: fmt-check-rust fmt-check-nix
 
 # Lint every source
 [group('all')]
-lint: lint-rust lint-nix
+lint: lint-rust lint-nix lint-markdown
 
 # Run every test suite
 [group('all')]
@@ -94,6 +115,21 @@ lint-nix:
   {{ dev }} sh -c 's=0; for f in "$@"; do statix check "$f" || s=1; done; exit $s' _ {{ nix }}
   {{ dev }} deadnix --fail {{ nix }}
   nix flake check --all-systems
+
+# ---------------------------------- Markdown ----------------------------------
+#
+# markdownlint-cli2 reads the files to lint, and the rules, from
+# .markdownlint-cli2.yaml. --fix repairs what it can, and reports the rest.
+
+# Fix Markdown lint errors that can be fixed automatically
+[group('markdown')]
+fmt-markdown:
+  {{ dev }} markdownlint-cli2 --fix
+
+# Lint the Markdown files
+[group('markdown')]
+lint-markdown:
+  {{ dev }} markdownlint-cli2
 
 # ------------------------------------ Bump ------------------------------------
 
