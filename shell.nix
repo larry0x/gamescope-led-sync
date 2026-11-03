@@ -14,7 +14,9 @@
   rustc,
   rustfmt,
   taplo,
+  jq,
   just,
+  nixf,
   nixfmt,
   statix,
   deadnix,
@@ -44,6 +46,11 @@ mkShell {
     nixfmt
     statix
     deadnix
+
+    # nixf-tidy, the checks of nixd, the Nix language server that VS
+    # Code shows, and jq to print its JSON findings.
+    nixf
+    jq
 
     # Formatter and linter for the Markdown files, configured by
     # .markdownlint-cli2.yaml.
