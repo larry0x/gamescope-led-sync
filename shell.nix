@@ -1,4 +1,4 @@
-# The development shell: every tool the just recipes wrap, all from nixpkgs,
+# The development shell: every tool the just recipes call, all from nixpkgs,
 # which flake.nix pins.
 #
 # The crate links libpipewire, which exists only on Linux, so its build inputs
@@ -13,55 +13,32 @@
   clippy,
   rustc,
   rustfmt,
-  taplo,
-  jq,
-  just,
-  nixf,
-  nixfmt,
-  statix,
-  deadnix,
-  markdownlint-cli2,
   pkg-config,
   rustPlatform,
   pipewire,
+
+  # just, and the formatters and linters for Nix, TOML, YAML, and Markdown,
+  # from the tools repository, at the versions of the nixpkgs pinned here.
+  toolsPackages,
 }:
 mkShell {
-  nativeBuildInputs = [
-    # The task runner. Every recipe wraps its commands in `nix develop`, and
-    # CI runs the same recipes, so this is the entry point on both sides.
-    just
-
-    # The Rust toolchain: four packages built from one rustc release, so their
-    # versions cannot skew; bump with `just bump-toolchain`. cargo does not
-    # pull in the compiler by itself, so rustc must be listed.
-    cargo
-    clippy
-    rustc
-    rustfmt
-
-    # Formatter and linter for TOML files, configured by taplo.toml.
-    taplo
-
-    # Formatter and linters for the Nix files.
-    nixfmt
-    statix
-    deadnix
-
-    # nixf-tidy, the checks of nixd, the Nix language server that VS
-    # Code shows, and jq to print its JSON findings.
-    nixf
-    jq
-
-    # Formatter and linter for the Markdown files, configured by
-    # .markdownlint-cli2.yaml.
-    markdownlint-cli2
-  ]
-  ++ lib.optionals stdenv.hostPlatform.isLinux [
-    # Building the pipewire crate: pkg-config finds libpipewire, and the
-    # bindgen hook provides libclang for its generated bindings.
-    pkg-config
-    rustPlatform.bindgenHook
-  ];
+  nativeBuildInputs =
+    toolsPackages
+    ++ [
+      # The Rust toolchain: four packages built from one rustc release, so
+      # their versions cannot skew; bump with `just bump-tools`. cargo does not
+      # pull in the compiler by itself, so rustc must be listed.
+      cargo
+      clippy
+      rustc
+      rustfmt
+    ]
+    ++ lib.optionals stdenv.hostPlatform.isLinux [
+      # Building the pipewire crate: pkg-config finds libpipewire, and the
+      # bindgen hook provides libclang for its generated bindings.
+      pkg-config
+      rustPlatform.bindgenHook
+    ];
 
   buildInputs = lib.optionals stdenv.hostPlatform.isLinux [
     # libpipewire itself, found through pkg-config above.
