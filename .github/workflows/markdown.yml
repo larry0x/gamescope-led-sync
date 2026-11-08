@@ -1,9 +1,17 @@
+# The jobs live in the tools repository, as a reusable workflow; this file
+# holds the triggers. `just sync-tools` writes the commit below to match the
+# version of the tools input that flake.lock pins, and `nix flake check` fails
+# when the two differ.
+
 name: Markdown
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+# The workflow runs when a file of its language changes, or a file that
+# changes what the recipes do: the flake, which pins the tools; the justfile;
+# and .gitignore, which decides the files the recipes see.
 on:
   workflow_dispatch:
   push:
@@ -12,37 +20,30 @@ on:
     paths:
       - "**.md"
       - ".markdownlint-cli2.yaml"
-      - "justfile"
+      - ".github/workflows/markdown.yml"
       - "flake.nix"
       - "flake.lock"
       - "shell.nix"
-      - ".github/workflows/markdown.yml"
+      - "justfile"
+      - "base.just"
+      - ".gitignore"
   pull_request:
     branches:
       - "*"
     paths:
       - "**.md"
       - ".markdownlint-cli2.yaml"
-      - "justfile"
+      - ".github/workflows/markdown.yml"
       - "flake.nix"
       - "flake.lock"
       - "shell.nix"
-      - ".github/workflows/markdown.yml"
+      - "justfile"
+      - "base.just"
+      - ".gitignore"
 
-# Each step runs the same just recipe a developer runs, so the two cannot
-# drift. GitHub-hosted runners ship no Nix, so each job installs it first.
+permissions:
+  contents: read
+
 jobs:
-  lint:
-    name: Lint
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout sources
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-
-      - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
-
-      - name: Check for lint errors
-        run: nix develop --command just lint-markdown
+  markdown:
+    uses: larry0x/tools/.github/workflows/markdown.yml@efa7fa8784511b7c2c6944f19815c95e6c392e65
