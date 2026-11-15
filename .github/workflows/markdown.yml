@@ -46,4 +46,4 @@ permissions:
 
 jobs:
   markdown:
-    uses: larry0x/tools/.github/workflows/markdown.yml@efa7fa8784511b7c2c6944f19815c95e6c392e65
+    uses: larry0x/tools/.github/workflows/markdown.yml@0451ffbefcd4ca4c818861ee1f25cc68fc9c5f3c
