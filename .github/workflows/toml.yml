@@ -44,4 +44,4 @@ permissions:
 
 jobs:
   toml:
-    uses: larry0x/tools/.github/workflows/toml.yml@efa7fa8784511b7c2c6944f19815c95e6c392e65
+    uses: larry0x/tools/.github/workflows/toml.yml@702cf291e0a264e8c926feeeb3993785f6d925cc

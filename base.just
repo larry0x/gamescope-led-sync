@@ -411,7 +411,8 @@ test-js:
 
 # ------------------------------------ TOML ------------------------------------
 
-# taplo reads its formatting options from taplo.toml.
+# tombi reads its options from tombi.toml. A warning fails the lint, as
+# clippy's `-D warnings` does for Rust.
 #
 # Format the TOML files
 [group('toml')]
@@ -420,7 +421,7 @@ fmt-toml:
   files={{ toml }}
   [ -n "$files" ] || exit 0
   {{ enter }}
-  taplo fmt $files
+  tombi format --quiet $files
 
 # Report TOML formatting drift, changing nothing
 [group('toml')]
@@ -429,7 +430,7 @@ fmt-check-toml:
   files={{ toml }}
   [ -n "$files" ] || exit 0
   {{ enter }}
-  taplo fmt --check --diff $files
+  tombi format --check --diff --quiet $files
 
 # Lint the TOML files
 [group('toml')]
@@ -438,7 +439,7 @@ lint-toml:
   files={{ toml }}
   [ -n "$files" ] || exit 0
   {{ enter }}
-  taplo lint $files
+  tombi lint --error-on-warnings --quiet $files
 
 # ------------------------------------ YAML ------------------------------------
 

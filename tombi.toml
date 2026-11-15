@@ -1,0 +1,21 @@
+# https://tombi-toml.github.io/tombi/docs/configuration
+
+# TOML 1.0 has no multi-line inline tables, so the formatter leaves an
+# inline table on one line, however long.
+toml-version = "v1.0.0"
+
+# The formatter keeps comments, string quotes, and date-time delimiters as
+# written. There is no line width: with one, the formatter would split the
+# arrays inside a long inline table, such as a dependency's features. So an
+# array is split over lines only by hand, and a trailing comma keeps it so.
+[format.rules]
+comment-style                   = "preserve"
+date-time-delimiter             = "preserve"
+group-blank-lines-limit         = 1
+key-value-equals-sign-alignment = true
+string-quote-style              = "preserve"
+
+# Tombi sorts keys only where a schema from the JSON Schema Store asks it to,
+# as the one for Cargo.toml does. Elsewhere, keys keep the order they are
+# written in. The linter checks each file against its schema, which it
+# fetches over the network.

@@ -41,7 +41,7 @@
         ".yamllint.yaml"
         "clippy.toml"
         "rustfmt.toml"
-        "taplo.toml"
+        "tombi.toml"
         {
           from = "justfile";
           to = "base.just";
