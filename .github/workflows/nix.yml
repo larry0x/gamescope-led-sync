@@ -26,4 +26,4 @@ permissions:
 
 jobs:
   nix:
-    uses: larry0x/tools/.github/workflows/nix.yml@702cf291e0a264e8c926feeeb3993785f6d925cc
+    uses: larry0x/tools/.github/workflows/nix.yml@d5d63c88483fc2809c336b26cfcfff9f01812269
