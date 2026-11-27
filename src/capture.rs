@@ -13,6 +13,7 @@ use {
         main_loop::MainLoopRc,
         node::{Node, NodeListener},
         properties::properties,
+        registry::RegistryRc,
         spa::{
             param::{
                 ParamType,
@@ -180,16 +181,9 @@ fn format_pod(cfg: &Config) -> Vec<u8> {
 /// So every candidate video node is bound and its info inspected.
 fn discover(
     mainloop: &MainLoopRc,
-    core: &pw::core::CoreRc,
+    registry: &Rc<RegistryRc>,
     once: bool,
 ) -> Result<Option<u32>, CaptureError> {
-    let registry = Rc::new(
-        core.get_registry_rc()
-            .map_err(|source| CaptureError::Pipewire {
-                op: "registry",
-                source,
-            })?,
-    );
     let found: Rc<Cell<Option<u32>>> = Rc::new(Cell::new(None));
     // Bound candidates with their info listeners, alive until
     // discovery ends.
@@ -313,7 +307,17 @@ pub fn run(
             source,
         })?;
 
-    let Some(node_id) = discover(&mainloop, &core, cfg.once)? else {
+    // One registry for discovery and the session, so the node's removal
+    // reaches the session's listener even if it happens right after
+    // discovery.
+    let registry = Rc::new(
+        core.get_registry_rc()
+            .map_err(|source| CaptureError::Pipewire {
+                op: "registry",
+                source,
+            })?,
+    );
+    let Some(node_id) = discover(&mainloop, &registry, cfg.once)? else {
         if interrupted() {
             return Ok(Reason::Interrupted);
         }
@@ -353,6 +357,25 @@ pub fn run(
         proc: Duration::ZERO,
         end: None,
     }));
+
+    // The end of a session, in the normal case: gamescope crashes
+    // whenever Steam exits, and the stream does not notice. It goes
+    // to paused, waiting for a node that never returns, and never
+    // reports Unconnected. The node's removal from the registry is
+    // what says gamescope is gone.
+    let _node_listener = registry
+        .add_listener_local()
+        .global_remove({
+            let state = state.clone();
+            let ml = mainloop.clone();
+            move |id| {
+                if id == node_id {
+                    state.borrow_mut().end = Some(Reason::Stopped("gamescope node removed".into()));
+                    ml.quit();
+                }
+            }
+        })
+        .register();
 
     let preview = cfg.preview.then(|| Rc::new(RefCell::new(Preview::new())));
 
@@ -569,7 +592,7 @@ pub fn run(
                 // Quiet stream: a static screen is normal (gamescope is
                 // damage-driven). Keep WLED in realtime mode so it does
                 // not fall back to its preset mid-game. Actual node
-                // death arrives via state_changed instead.
+                // death arrives via the registry's global_remove instead.
                 if now.duration_since(st.last_send) >= KEEPALIVE
                     && let Some(colors) = last_colors.borrow().as_ref()
                 {
